@@ -16,7 +16,6 @@ out/
 
 # Future Rust
 target/
-Cargo.lock
 
 # Future Python (MLX sidecar)
 __pycache__/
