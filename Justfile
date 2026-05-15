@@ -11,6 +11,9 @@ default:
 dev:
     #!/usr/bin/env bash
     set -euo pipefail
+    if [ -z "${SIDECAR_WHISPER_MODEL_PATH:-}" ]; then
+      echo "warning: SIDECAR_WHISPER_MODEL_PATH is not set; /v1/stt will return 503 stt_unavailable" >&2
+    fi
     just sidecar-dev &
     SIDECAR_PID=$!
     trap "kill $SIDECAR_PID 2>/dev/null || true" EXIT
@@ -42,11 +45,16 @@ dmg: build
 # Run unit and integration tests across all crates and the app.
 test:
     cargo nextest run -p inference-core
+    cargo nextest run -p lda-cli
     cd app && npm test
+
+# Run the ignored "real model" tests (requires SIDECAR_WHISPER_MODEL_PATH).
+test-real:
+    cargo test -p inference-core -- --ignored --nocapture
 
 # Lint everything (clippy + eslint).
 lint:
-    cargo clippy -p inference-core --all-targets -- -D warnings
+    cargo clippy --workspace --all-targets -- -D warnings
     cd app && npm run lint
 
 # Format everything.
