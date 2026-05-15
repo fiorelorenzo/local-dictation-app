@@ -47,6 +47,13 @@ struct HealthBody {
     stt_ready: bool,
 }
 
+#[derive(Debug, Deserialize)]
+struct VersionBody {
+    version: String,
+    build: String,
+    backend: String,
+}
+
 fn resolve_socket(arg: Option<PathBuf>) -> Result<PathBuf> {
     if let Some(p) = arg {
         return Ok(p);
@@ -102,6 +109,17 @@ async fn cmd_health(socket: &Path, msgpack: bool) -> Result<i32> {
     Ok(0)
 }
 
+async fn cmd_version(socket: &Path, msgpack: bool) -> Result<i32> {
+    let (status, bytes) = unix_get_bytes(socket, "/version", accept_header(msgpack)).await?;
+    if !status.is_success() {
+        eprintln!("{} {}", status, String::from_utf8_lossy(&bytes));
+        return Ok(if status.is_client_error() { 3 } else { 4 });
+    }
+    let v: VersionBody = decode_body(&bytes, msgpack)?;
+    println!("version={}  build={}  backend={}", v.version, v.build, v.backend);
+    Ok(0)
+}
+
 #[tokio::main]
 async fn main() -> std::process::ExitCode {
     let cli = Cli::parse();
@@ -126,7 +144,8 @@ async fn main() -> std::process::ExitCode {
 
     let code = match cli.cmd {
         Cmd::Health => cmd_health(&socket, cli.msgpack).await,
-        Cmd::Version | Cmd::Models | Cmd::Stt { .. } => {
+        Cmd::Version => cmd_version(&socket, cli.msgpack).await,
+        Cmd::Models | Cmd::Stt { .. } => {
             eprintln!("subcommand not yet implemented");
             Ok(1)
         }
