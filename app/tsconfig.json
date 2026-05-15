@@ -1,15 +1,23 @@
 {
   "compilerOptions": {
     "target": "ESNext",
-    "module": "commonjs",
-    "allowJs": true,
-    "skipLibCheck": true,
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "lib": ["ESNext", "DOM", "DOM.Iterable"],
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "noImplicitOverride": true,
+    "exactOptionalPropertyTypes": true,
     "esModuleInterop": true,
-    "noImplicitAny": true,
-    "sourceMap": true,
-    "baseUrl": ".",
-    "outDir": "dist",
-    "moduleResolution": "node",
-    "resolveJsonModule": true
-  }
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
+    "resolveJsonModule": true,
+    "allowSyntheticDefaultImports": true,
+    "isolatedModules": true,
+    "verbatimModuleSyntax": false,
+    "useDefineForClassFields": true,
+    "types": ["node", "vite/client", "svelte"]
+  },
+  "include": ["src/**/*.ts", "src/**/*.svelte", "forge.env.d.ts"],
+  "exclude": ["node_modules", "out", ".vite"]
 }
