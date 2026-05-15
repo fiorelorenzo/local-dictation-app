@@ -96,8 +96,7 @@ async fn stt(
     let ct_ok = headers
         .get(axum::http::header::CONTENT_TYPE)
         .and_then(|v| v.to_str().ok())
-        .map(|s| s.to_ascii_lowercase().starts_with("audio/wav"))
-        .unwrap_or(false);
+        .is_some_and(|s| s.to_ascii_lowercase().starts_with("audio/wav"));
     if !ct_ok {
         return error_response(
             wire,
@@ -131,7 +130,7 @@ async fn stt(
     let body_vec = body.to_vec();
     let samples = match tokio::task::spawn_blocking(move || audio::process_wav(&body_vec)).await {
         Ok(Ok(s)) => s,
-        Ok(Err(e)) => return stt_error_to_response(wire, e).into_response(),
+        Ok(Err(e)) => return stt_error_to_response(wire, &e).into_response(),
         Err(join_err) => {
             return error_response(
                 wire,
@@ -150,11 +149,11 @@ async fn stt(
     };
     match stt_handle.transcribe(samples, opts).await {
         Ok(transcript) => WireResponse::ok(wire, transcript).into_response(),
-        Err(e) => stt_error_to_response(wire, e).into_response(),
+        Err(e) => stt_error_to_response(wire, &e).into_response(),
     }
 }
 
-fn stt_error_to_response(wire: Wire, err: SttError) -> WireResponse<ErrorBody> {
+fn stt_error_to_response(wire: Wire, err: &SttError) -> WireResponse<ErrorBody> {
     let (status, code) = match err {
         SttError::AudioDecode(_) => (StatusCode::BAD_REQUEST, "bad_audio"),
         SttError::AudioUnsupported(_) => (StatusCode::BAD_REQUEST, "unsupported_audio"),
