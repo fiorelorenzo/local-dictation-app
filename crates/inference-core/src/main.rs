@@ -4,6 +4,65 @@
 #![warn(clippy::pedantic)]
 #![allow(clippy::missing_errors_doc, clippy::missing_panics_doc)]
 
-fn main() {
-    println!("inference-core stub");
+use std::env;
+use std::path::PathBuf;
+use std::time::Instant;
+
+use anyhow::{Context, Result};
+use axum::{routing::get, Json, Router};
+use serde::Serialize;
+use tokio::net::UnixListener;
+use tracing::{info, warn};
+
+const VERSION: &str = env!("CARGO_PKG_VERSION");
+
+#[derive(Clone)]
+struct AppState {
+    started_at: Instant,
+}
+
+#[derive(Serialize)]
+struct HealthResponse {
+    status: &'static str,
+    version: &'static str,
+    uptime_ms: u128,
+}
+
+async fn healthz(axum::extract::State(state): axum::extract::State<AppState>) -> Json<HealthResponse> {
+    Json(HealthResponse {
+        status: "ok",
+        version: VERSION,
+        uptime_ms: state.started_at.elapsed().as_millis(),
+    })
+}
+
+fn socket_path_from_env() -> Result<PathBuf> {
+    let path = env::var("SIDECAR_SOCKET_PATH")
+        .context("SIDECAR_SOCKET_PATH env var is required")?;
+    Ok(PathBuf::from(path))
+}
+
+#[tokio::main]
+async fn main() -> Result<()> {
+    let log_level = env::var("SIDECAR_LOG_LEVEL").unwrap_or_else(|_| "info".to_string());
+    tracing_subscriber::fmt()
+        .with_env_filter(log_level)
+        .init();
+
+    let socket_path = socket_path_from_env()?;
+    if socket_path.exists() {
+        warn!(?socket_path, "removing stale socket file");
+        std::fs::remove_file(&socket_path).context("remove stale socket")?;
+    }
+
+    let listener = UnixListener::bind(&socket_path).context("bind unix listener")?;
+    info!(?socket_path, "listening on unix socket");
+
+    let state = AppState { started_at: Instant::now() };
+    let app = Router::new()
+        .route("/healthz", get(healthz))
+        .with_state(state);
+
+    axum::serve(listener, app).await.context("axum serve")?;
+    Ok(())
 }

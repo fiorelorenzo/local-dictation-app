@@ -1,0 +1,86 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Lorenzo Fiore
+
+use std::path::PathBuf;
+use std::process::Command;
+use std::time::Duration;
+
+use tempfile::TempDir;
+
+fn binary_path() -> PathBuf {
+    let mut p = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    p.push("..");
+    p.push("..");
+    p.push("target");
+    p.push("debug");
+    p.push("inference-core");
+    p
+}
+
+struct TestServer {
+    child: std::process::Child,
+    socket: PathBuf,
+    _tmp: TempDir,
+}
+
+impl TestServer {
+    fn spawn() -> Self {
+        let tmp = TempDir::new().expect("tmp dir");
+        let socket = tmp.path().join("sidecar.sock");
+        let child = Command::new(binary_path())
+            .env("SIDECAR_SOCKET_PATH", &socket)
+            .env("SIDECAR_LOG_LEVEL", "info")
+            .spawn()
+            .expect("spawn sidecar");
+        // wait up to 3 s for socket to exist
+        let deadline = std::time::Instant::now() + Duration::from_secs(3);
+        while std::time::Instant::now() < deadline {
+            if socket.exists() {
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(50));
+        }
+        assert!(socket.exists(), "sidecar did not create socket within 3s");
+        Self { child, socket, _tmp: tmp }
+    }
+}
+
+impl Drop for TestServer {
+    fn drop(&mut self) {
+        let _ = self.child.kill();
+        let _ = self.child.wait();
+    }
+}
+
+/// Performs a raw HTTP GET over a UNIX socket and returns (status, body).
+/// We use hyper directly because reqwest does not support unix:// URLs.
+async fn unix_get(socket: &std::path::Path, path: &str) -> (hyper::StatusCode, String) {
+    use hyper::body::Bytes;
+    use hyper::Request;
+    use hyperlocal::{UnixConnector, Uri};
+    use http_body_util::{BodyExt, Empty};
+
+    let connector = UnixConnector;
+    let client: hyper_util::client::legacy::Client<UnixConnector, Empty<Bytes>> =
+        hyper_util::client::legacy::Client::builder(hyper_util::rt::TokioExecutor::new())
+            .build(connector);
+    let uri: hyper::Uri = Uri::new(socket, path).into();
+    let req = Request::builder()
+        .uri(uri)
+        .body(Empty::<Bytes>::new())
+        .unwrap();
+    let resp = client.request(req).await.expect("http request");
+    let (parts, body) = resp.into_parts();
+    let bytes = body.collect().await.unwrap().to_bytes();
+    let response_body = String::from_utf8_lossy(&bytes).into_owned();
+    (parts.status, response_body)
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn healthz_returns_ok() {
+    let server = TestServer::spawn();
+    let (status, body) = unix_get(&server.socket, "/healthz").await;
+    assert!(status.is_success(), "expected 2xx, got {status}");
+    assert!(body.contains("\"status\":\"ok\""), "body: {body}");
+    assert!(body.contains("\"version\":\"0.0.1\""), "body: {body}");
+}
