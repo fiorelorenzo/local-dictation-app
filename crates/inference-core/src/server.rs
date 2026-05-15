@@ -5,22 +5,26 @@ use std::path::PathBuf;
 use std::time::Instant;
 
 use anyhow::{Context, Result};
-use axum::{routing::get, Json, Router};
+use axum::{extract::State, http::HeaderMap, routing::get, Router};
 use serde::Serialize;
 use tokio::net::UnixListener;
 use tokio::signal::unix::{signal, SignalKind};
 use tracing::{info, warn};
+
+use crate::backend::SttBackendHandle;
+use crate::wire::{Wire, WireResponse};
 
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 pub const BUILD_SHA: &str = match option_env!("BUILD_SHA") {
     Some(sha) => sha,
     None => "unknown",
 };
-pub const BACKEND: &str = "hello-world";
+pub const BACKEND_NAME: &str = "whisper-rs";
 
 #[derive(Clone)]
 pub struct AppState {
     pub started_at: Instant,
+    pub stt: Option<SttBackendHandle>,
 }
 
 #[derive(Serialize)]
@@ -28,6 +32,7 @@ struct HealthResponse {
     status: &'static str,
     version: &'static str,
     uptime_ms: u128,
+    stt_ready: bool,
 }
 
 #[derive(Serialize)]
@@ -37,20 +42,27 @@ struct VersionResponse {
     backend: &'static str,
 }
 
-async fn healthz(axum::extract::State(state): axum::extract::State<AppState>) -> Json<HealthResponse> {
-    Json(HealthResponse {
-        status: "ok",
-        version: VERSION,
-        uptime_ms: state.started_at.elapsed().as_millis(),
-    })
+async fn healthz(headers: HeaderMap, State(state): State<AppState>) -> WireResponse<HealthResponse> {
+    WireResponse::ok(
+        Wire::from_accept(&headers),
+        HealthResponse {
+            status: "ok",
+            version: VERSION,
+            uptime_ms: state.started_at.elapsed().as_millis(),
+            stt_ready: state.stt.is_some(),
+        },
+    )
 }
 
-async fn version() -> Json<VersionResponse> {
-    Json(VersionResponse {
-        version: VERSION,
-        build: BUILD_SHA,
-        backend: BACKEND,
-    })
+async fn version(headers: HeaderMap) -> WireResponse<VersionResponse> {
+    WireResponse::ok(
+        Wire::from_accept(&headers),
+        VersionResponse {
+            version: VERSION,
+            build: BUILD_SHA,
+            backend: BACKEND_NAME,
+        },
+    )
 }
 
 pub fn build_router(state: AppState) -> Router {
@@ -76,7 +88,7 @@ pub async fn shutdown_signal(socket_path: PathBuf) {
     }
 }
 
-pub async fn run(socket_path: PathBuf) -> Result<()> {
+pub async fn run(socket_path: PathBuf, stt: Option<SttBackendHandle>) -> Result<()> {
     if socket_path.exists() {
         warn!(?socket_path, "removing stale socket file");
         std::fs::remove_file(&socket_path).context("remove stale socket")?;
@@ -85,7 +97,7 @@ pub async fn run(socket_path: PathBuf) -> Result<()> {
     let listener = UnixListener::bind(&socket_path).context("bind unix listener")?;
     info!(?socket_path, "listening on unix socket");
 
-    let state = AppState { started_at: Instant::now() };
+    let state = AppState { started_at: Instant::now(), stt };
     let app = build_router(state);
 
     let shutdown = shutdown_signal(socket_path.clone());

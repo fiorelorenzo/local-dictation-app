@@ -88,7 +88,7 @@ async fn version_returns_build_info() {
     let (status, body) = unix_get(&server.socket, "/version").await;
     assert!(status.is_success(), "expected 2xx, got {status}");
     assert!(body.contains("\"version\":\"0.0.1\""), "body: {body}");
-    assert!(body.contains("\"backend\":\"hello-world\""), "body: {body}");
+    assert!(body.contains("\"backend\":\"whisper-rs\""), "body: {body}");
     assert!(body.contains("\"build\":"), "body should contain build field: {body}");
 }
 
@@ -119,4 +119,12 @@ async fn sigterm_removes_socket_file() {
     // Socket file must be gone.
     assert!(!socket.exists(), "socket file should be removed after SIGTERM cleanup");
     std::mem::forget(server); // already reaped above; skip Drop double-kill
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn healthz_reports_stt_ready_false_when_no_backend() {
+    let server = TestServer::spawn();
+    let (status, body) = unix_get(&server.socket, "/healthz").await;
+    assert!(status.is_success(), "got {status}");
+    assert!(body.contains("\"stt_ready\":false"), "body: {body}");
 }

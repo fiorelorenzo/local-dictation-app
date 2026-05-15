@@ -1,12 +1,8 @@
 #![warn(clippy::pedantic)]
 #![allow(clippy::missing_errors_doc, clippy::missing_panics_doc)]
 
-mod server;
-// `backend` is unused until T6 (StubBackend) — silenced to avoid dead_code error under clippy::pedantic
-#[allow(dead_code)]
 mod backend;
-// `wire` is unused by handlers until T5 — silenced to avoid dead_code error under clippy::pedantic
-#[allow(dead_code)]
+mod server;
 mod wire;
 
 use std::env;
@@ -28,5 +24,6 @@ async fn main() -> Result<()> {
         .init();
 
     let socket_path = socket_path_from_env()?;
-    server::run(socket_path).await
+    // Backend wiring lands in T6. For now, no backend.
+    server::run(socket_path, None).await
 }

@@ -17,14 +17,13 @@ impl Wire {
         headers
             .get(ACCEPT)
             .and_then(|v| v.to_str().ok())
-            .map(|s| {
+            .map_or(Wire::Json, |s| {
                 if s.contains("application/msgpack") {
                     Wire::MsgPack
                 } else {
                     Wire::Json
                 }
             })
-            .unwrap_or(Wire::Json)
     }
 }
 
@@ -38,6 +37,7 @@ impl<T: Serialize> WireResponse<T> {
     pub fn ok(wire: Wire, body: T) -> Self {
         Self { wire, status: StatusCode::OK, body }
     }
+    #[allow(dead_code)]
     pub fn with_status(wire: Wire, status: StatusCode, body: T) -> Self {
         Self { wire, status, body }
     }
@@ -81,6 +81,7 @@ pub struct ErrorBody {
     pub reason: String,
 }
 
+#[allow(dead_code)]
 pub fn error_response(wire: Wire, status: StatusCode, error: &'static str, reason: impl Into<String>) -> WireResponse<ErrorBody> {
     WireResponse::with_status(wire, status, ErrorBody { error, reason: reason.into() })
 }
