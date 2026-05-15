@@ -2,7 +2,6 @@
 #![allow(clippy::missing_errors_doc, clippy::missing_panics_doc)]
 
 mod backend;
-#[allow(dead_code)]
 mod audio;
 mod server;
 mod stub;

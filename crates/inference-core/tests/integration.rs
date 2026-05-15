@@ -54,6 +54,55 @@ impl Drop for TestServer {
     }
 }
 
+/// Performs a raw HTTP POST over a UNIX socket and returns (status, body).
+async fn unix_post(
+    socket: &std::path::Path,
+    path: &str,
+    content_type: &str,
+    body_bytes: Vec<u8>,
+) -> (hyper::StatusCode, String) {
+    use hyper::body::Bytes;
+    use hyper::Request;
+    use hyperlocal::{UnixConnector, Uri};
+    use http_body_util::{BodyExt, Full};
+
+    let connector = UnixConnector;
+    let client: hyper_util::client::legacy::Client<UnixConnector, Full<Bytes>> =
+        hyper_util::client::legacy::Client::builder(hyper_util::rt::TokioExecutor::new())
+            .build(connector);
+    let uri: hyper::Uri = Uri::new(socket, path).into();
+    let req = Request::builder()
+        .method("POST")
+        .uri(uri)
+        .header("content-type", content_type)
+        .header("accept", "application/json")
+        .body(Full::new(Bytes::from(body_bytes)))
+        .unwrap();
+    let resp = client.request(req).await.expect("http post");
+    let (parts, body) = resp.into_parts();
+    let bytes = body.collect().await.unwrap().to_bytes();
+    let response_body = String::from_utf8_lossy(&bytes).into_owned();
+    (parts.status, response_body)
+}
+
+fn synth_wav_i16_mono_16k(samples: &[i16]) -> Vec<u8> {
+    let spec = hound::WavSpec {
+        channels: 1,
+        sample_rate: 16_000,
+        bits_per_sample: 16,
+        sample_format: hound::SampleFormat::Int,
+    };
+    let mut buf = Vec::new();
+    {
+        let mut writer = hound::WavWriter::new(std::io::Cursor::new(&mut buf), spec).unwrap();
+        for s in samples {
+            writer.write_sample(*s).unwrap();
+        }
+        writer.finalize().unwrap();
+    }
+    buf
+}
+
 /// Performs a raw HTTP GET over a UNIX socket and returns (status, body).
 /// We use hyper directly because reqwest does not support unix:// URLs.
 async fn unix_get(socket: &std::path::Path, path: &str) -> (hyper::StatusCode, String) {
@@ -140,4 +189,16 @@ async fn healthz_reports_stt_ready_true_with_stub_backend() {
     let (status, body) = unix_get(&server.socket, "/healthz").await;
     assert!(status.is_success(), "got {status}");
     assert!(body.contains("\"stt_ready\":true"), "body: {body}");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn stt_with_stub_returns_text() {
+    let server = TestServer::spawn_with_env(&[("SIDECAR_STT_BACKEND", "stub")]);
+    // 1600 samples = 100 ms of audio at 16k
+    let pcm: Vec<i16> = vec![0; 1600];
+    let wav = synth_wav_i16_mono_16k(&pcm);
+    let (status, body) = unix_post(&server.socket, "/v1/stt", "audio/wav", wav).await;
+    assert!(status.is_success(), "status={status} body={body}");
+    assert!(body.contains("\"text\":\"[stub] 1600 samples\""), "body: {body}");
+    assert!(body.contains("\"backend\":\"stub\""), "body: {body}");
 }
