@@ -4,9 +4,9 @@ use anyhow::{anyhow, Context, Result};
 use clap::{Parser, Subcommand};
 use hyper::body::Bytes;
 use hyper::Request;
-use http_body_util::{BodyExt, Empty};
+use http_body_util::{BodyExt, Empty, Full};
 use hyperlocal::{UnixConnector, Uri};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 #[derive(Parser, Debug)]
 #[command(name = "lda-cli", version, about = "client for the local-dictation-app sidecar")]
@@ -67,6 +67,25 @@ struct ModelEntry {
 #[derive(Debug, Deserialize)]
 struct ModelsBody {
     models: Vec<ModelEntry>,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+struct SttSegment {
+    start_ms: u32,
+    end_ms: u32,
+    text: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct SttBody {
+    text: String,
+    language: String,
+    duration_ms: u32,
+    processing_ms: u32,
+    model: String,
+    backend: String,
+    #[serde(default)]
+    segments: Option<Vec<SttSegment>>,
 }
 
 fn resolve_socket(arg: Option<PathBuf>) -> Result<PathBuf> {
@@ -156,6 +175,82 @@ async fn cmd_models(socket: &Path, msgpack: bool) -> Result<i32> {
     Ok(0)
 }
 
+#[allow(clippy::too_many_arguments)]
+async fn cmd_stt(
+    socket: &Path,
+    msgpack: bool,
+    file: PathBuf,
+    language: Option<String>,
+    translate: bool,
+    segments: bool,
+    print_json: bool,
+) -> Result<i32> {
+    let wav = tokio::fs::read(&file)
+        .await
+        .with_context(|| format!("read {}", file.display()))?;
+    if wav.len() < 44 {
+        return Err(anyhow!("input is not a WAV (too short)"));
+    }
+
+    let mut qs = Vec::new();
+    if let Some(lang) = language {
+        qs.push(format!("language={lang}"));
+    }
+    if translate {
+        qs.push("translate=true".to_string());
+    }
+    if segments {
+        qs.push("segments=true".to_string());
+    }
+    let q = if qs.is_empty() { String::new() } else { format!("?{}", qs.join("&")) };
+    let endpoint = format!("/v1/stt{q}");
+
+    let connector = UnixConnector;
+    let client: hyper_util::client::legacy::Client<UnixConnector, Full<Bytes>> =
+        hyper_util::client::legacy::Client::builder(hyper_util::rt::TokioExecutor::new())
+            .build(connector);
+    let uri: hyper::Uri = Uri::new(socket, &endpoint).into();
+    let req = Request::builder()
+        .method("POST")
+        .uri(uri)
+        .header("content-type", "audio/wav")
+        .header("accept", accept_header(msgpack))
+        .body(Full::new(Bytes::from(wav)))?;
+    let resp = client.request(req).await.context("request failed")?;
+    let (parts, body) = resp.into_parts();
+    let bytes = body.collect().await.context("body collect failed")?.to_bytes().to_vec();
+
+    if !parts.status.is_success() {
+        eprintln!("{} {}", parts.status, String::from_utf8_lossy(&bytes));
+        return Ok(if parts.status.is_client_error() { 3 } else { 4 });
+    }
+    let parsed: SttBody = decode_body(&bytes, msgpack)?;
+    if print_json {
+        let v = serde_json::to_value(serde_json::json!({
+            "text": parsed.text,
+            "language": parsed.language,
+            "duration_ms": parsed.duration_ms,
+            "processing_ms": parsed.processing_ms,
+            "model": parsed.model,
+            "backend": parsed.backend,
+            "segments": parsed.segments,
+        }))?;
+        println!("{}", serde_json::to_string_pretty(&v)?);
+    } else {
+        let rtf = if parsed.duration_ms == 0 {
+            0.0
+        } else {
+            f64::from(parsed.processing_ms) / f64::from(parsed.duration_ms)
+        };
+        eprintln!(
+            "[{}] {} ({}) {}ms audio, {}ms processing (rtf {:.2}x)",
+            parsed.backend, parsed.model, parsed.language, parsed.duration_ms, parsed.processing_ms, rtf
+        );
+        println!("{}", parsed.text);
+    }
+    Ok(0)
+}
+
 #[tokio::main]
 async fn main() -> std::process::ExitCode {
     let cli = Cli::parse();
@@ -182,10 +277,8 @@ async fn main() -> std::process::ExitCode {
         Cmd::Health => cmd_health(&socket, cli.msgpack).await,
         Cmd::Version => cmd_version(&socket, cli.msgpack).await,
         Cmd::Models => cmd_models(&socket, cli.msgpack).await,
-        Cmd::Stt { .. } => {
-            eprintln!("subcommand not yet implemented");
-            Ok(1)
-        }
+        Cmd::Stt { file, language, translate, segments, json } =>
+            cmd_stt(&socket, cli.msgpack, file, language, translate, segments, json).await,
     };
     match code {
         Ok(c) => std::process::ExitCode::from(c as u8),
