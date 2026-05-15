@@ -5,6 +5,7 @@ mod backend;
 mod audio;
 mod server;
 mod stub;
+mod whisper;
 mod wire;
 
 use std::env;
@@ -23,14 +24,28 @@ fn socket_path_from_env() -> Result<PathBuf> {
 }
 
 /// Picks the STT backend at startup based on env.
-/// Precedence: `SIDECAR_STT_BACKEND=stub` > whisper (real backend lands in T11).
+/// Precedence: `SIDECAR_STT_BACKEND=stub` > whisper (default).
 fn load_stt_backend() -> Option<SttBackendHandle> {
     let kind = env::var("SIDECAR_STT_BACKEND").unwrap_or_else(|_| "whisper".to_string());
     match kind.as_str() {
         "stub" => Some(Arc::new(StubBackend::new()) as SttBackendHandle),
         "whisper" => {
-            // WhisperBackend wired in T11. Until then, fall back to None when no model.
-            None
+            let Ok(model_path_s) = env::var("SIDECAR_WHISPER_MODEL_PATH") else {
+                tracing::warn!("SIDECAR_WHISPER_MODEL_PATH not set; /v1/stt will return 503");
+                return None;
+            };
+            let model_path = PathBuf::from(model_path_s);
+            if !model_path.exists() {
+                tracing::error!(?model_path, "whisper model file does not exist; STT disabled");
+                return None;
+            }
+            match whisper::WhisperBackend::load(model_path) {
+                Ok(b) => Some(Arc::new(b) as SttBackendHandle),
+                Err(e) => {
+                    tracing::error!(error = ?e, "failed to load WhisperBackend; STT disabled");
+                    None
+                }
+            }
         }
         other => {
             tracing::warn!(backend=%other, "unknown SIDECAR_STT_BACKEND, ignoring");
