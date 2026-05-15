@@ -5,6 +5,9 @@ mod server;
 // `backend` is unused until T6 (StubBackend) — silenced to avoid dead_code error under clippy::pedantic
 #[allow(dead_code)]
 mod backend;
+// `wire` is unused by handlers until T5 — silenced to avoid dead_code error under clippy::pedantic
+#[allow(dead_code)]
+mod wire;
 
 use std::env;
 use std::path::PathBuf;
