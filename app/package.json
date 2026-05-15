@@ -10,7 +10,8 @@
     "package": "electron-forge package",
     "make": "electron-forge make",
     "publish": "electron-forge publish",
-    "lint": "eslint --ext .ts,.tsx ."
+    "lint": "eslint --ext .ts,.tsx .",
+    "test": "vitest run"
   },
   "keywords": [],
   "author": {
@@ -37,7 +38,8 @@
     "eslint-plugin-import": "^2.32.0",
     "svelte": "^5.55.7",
     "typescript": "~5.7",
-    "vite": "^5.4.21"
+    "vite": "^5.4.21",
+    "vitest": "^4.1.6"
   },
   "dependencies": {
     "electron-squirrel-startup": "^1.0.1"
