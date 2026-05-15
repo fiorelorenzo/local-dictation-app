@@ -287,3 +287,52 @@ async fn stt_returns_503_busy_on_concurrent_requests() {
     assert_eq!(status2, hyper::StatusCode::SERVICE_UNAVAILABLE, "body: {body2}");
     assert!(body2.contains("\"error\":\"busy\""), "body: {body2}");
 }
+
+async fn unix_get_with_accept(
+    socket: &std::path::Path,
+    path: &str,
+    accept: &str,
+) -> (hyper::StatusCode, Vec<u8>, String) {
+    use hyper::body::Bytes;
+    use hyper::Request;
+    use hyperlocal::{UnixConnector, Uri};
+    use http_body_util::{BodyExt, Empty};
+
+    let connector = UnixConnector;
+    let client: hyper_util::client::legacy::Client<UnixConnector, Empty<Bytes>> =
+        hyper_util::client::legacy::Client::builder(hyper_util::rt::TokioExecutor::new())
+            .build(connector);
+    let uri: hyper::Uri = Uri::new(socket, path).into();
+    let req = Request::builder()
+        .uri(uri)
+        .header("accept", accept)
+        .body(Empty::<Bytes>::new())
+        .unwrap();
+    let resp = client.request(req).await.expect("http request");
+    let (parts, body) = resp.into_parts();
+    let ct = parts
+        .headers
+        .get(hyper::header::CONTENT_TYPE)
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("")
+        .to_string();
+    let bytes = body.collect().await.unwrap().to_bytes().to_vec();
+    (parts.status, bytes, ct)
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn healthz_negotiates_msgpack() {
+    use serde::Deserialize;
+    #[derive(Deserialize)]
+    struct H { status: String, version: String, stt_ready: bool }
+
+    let server = TestServer::spawn();
+    let (status, bytes, ct) =
+        unix_get_with_accept(&server.socket, "/healthz", "application/msgpack").await;
+    assert!(status.is_success(), "status={status}");
+    assert!(ct.starts_with("application/msgpack"), "ct={ct}");
+    let decoded: H = rmp_serde::from_slice(&bytes).expect("valid msgpack");
+    assert_eq!(decoded.status, "ok");
+    assert_eq!(decoded.version, "0.0.1");
+    assert!(!decoded.stt_ready);
+}
