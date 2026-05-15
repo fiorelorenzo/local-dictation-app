@@ -16,6 +16,7 @@
 | License | Apache-2.0 | Standard for the Rust-heavy stack, SPDX short headers in source files |
 | App bundler | Electron Forge (official) + Vite plugin + Svelte 5 | Replaces the prior electron-vite + electron-builder proposal |
 | Folder/repo name | `local-dictation-app` (placeholder) | Final product name TBD, see open decisions in arch spec |
+| Build matrix in M0 | arm64 only (Apple Silicon) | x86_64 (Intel Mac) deferred. CI matrix is single-arch in M0; expanded to dual-arch in M0.5 or M1 |
 
 ---
 
@@ -104,7 +105,8 @@ codegen-units = 1
 [toolchain]
 channel = "1.84.0"
 components = ["clippy", "rustfmt"]
-targets = ["aarch64-apple-darwin", "x86_64-apple-darwin"]
+targets = ["aarch64-apple-darwin"]
+# x86_64-apple-darwin added in M0.5 or M1 when Intel Mac build lands
 ```
 
 ### Electron Forge bootstrap
@@ -274,19 +276,12 @@ on:
 
 jobs:
   build:
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - runner: macos-15
-            arch: arm64
-            rust_target: aarch64-apple-darwin
-          - runner: macos-13
-            arch: x64
-            rust_target: x86_64-apple-darwin
-
-    runs-on: ${{ matrix.runner }}
+    # M0 ships arm64 only. Dual-arch matrix added in M0.5 or M1.
+    runs-on: macos-15
     timeout-minutes: 30
+    env:
+      ARCH: arm64
+      RUST_TARGET: aarch64-apple-darwin
 
     steps:
       - name: Checkout
@@ -323,24 +318,24 @@ jobs:
 
       - name: Build sidecar (release)
         working-directory: crates/inference-core
-        run: cargo build --release --target ${{ matrix.rust_target }}
+        run: cargo build --release --target $RUST_TARGET
 
       - name: Copy sidecar into app resources
         run: |
           mkdir -p app/resources
-          cp crates/inference-core/target/${{ matrix.rust_target }}/release/inference-core \
+          cp crates/inference-core/target/$RUST_TARGET/release/inference-core \
              app/resources/inference-core
 
       - name: Build DMG (unsigned in M0)
         working-directory: app
         env:
           SKIP_NOTARIZATION: "true"
-        run: npm run make -- --arch ${{ matrix.arch }}
+        run: npm run make -- --arch $ARCH
 
       - name: Upload DMG artifact
         uses: actions/upload-artifact@v4
         with:
-          name: local-dictation-app-${{ matrix.arch }}-unsigned
+          name: local-dictation-app-arm64-unsigned
           path: app/out/make/**/*.dmg
           retention-days: 30
           if-no-files-found: error
@@ -390,8 +385,7 @@ export default config;
 
 Configured manually on GitHub after repo creation:
 - Require pull request before merging (1 approving review)
-- Require status check `build-mac / build (macos-15, arm64)` to pass
-- Require status check `build-mac / build (macos-13, x64)` to pass
+- Require status check `build-mac / build` to pass
 - Restrict who can push to matching branches: nobody (force PRs)
 
 ---
@@ -472,9 +466,8 @@ M0 does not include this step. The static NOTICE at repo root is sufficient for 
 | Working Cargo workspace | `Cargo.toml` + `crates/inference-core/` | `cargo build --release` produces a binary |
 | Electron Forge app | `app/` | `cd app && npm start` opens a dev window |
 | Justfile orchestrator | `Justfile` | `just dev`, `just build`, `just dmg`, `just test`, `just lint` all work |
-| CI workflow | `.github/workflows/build-mac.yml` | Push to main triggers build, matrix arm64+x64, both green |
+| CI workflow | `.github/workflows/build-mac.yml` | Push to main triggers build (arm64 only), job green |
 | DMG arm64 unsigned | CI artifact | Download, mount, drag to Applications, Right-click > Open, app launches |
-| DMG x64 unsigned | CI artifact | Same as above |
 | Sidecar hello-world | runtime | Menu bar shows "Sidecar: connected, v0.0.1" |
 | Apache-2.0 compliance | `LICENSE` + `NOTICE` + SPDX headers | `just check-license` passes |
 
@@ -494,7 +487,7 @@ M0 does not include this step. The static NOTICE at repo root is sufficient for 
 ☐ Main process menu bar status indicator showing sidecar state
 ☐ Apache-2.0 LICENSE + NOTICE + SPDX headers in all source files
 ☐ Justfile with commands: dev, sidecar-dev, app-dev, build, dmg, test, lint, format, clean, setup, check-license
-☐ GitHub Actions workflow build-mac.yml green on matrix arm64+x64
+☐ GitHub Actions workflow build-mac.yml green on arm64
 ☐ DMG artifact downloadable from a CI run
 ☐ README updated with license badge + status + 5-line getting started
 ☐ CHANGELOG.md initialized with entry v0.0.1 "M0 Foundation"
@@ -525,17 +518,17 @@ M0 does not include this step. The static NOTICE at repo root is sufficient for 
 
 ### Gate review at end of M0 (decisions before M1)
 
-1. Is CI total time acceptable? (target: < 15 min for the full matrix)
+1. Is CI total time acceptable? (target: < 15 min for the arm64 build)
 2. Does the Forge scaffold behave as expected, or are there frictions to fix before growing?
 3. Apple Dev cert: incoming or still deferred to M0.5?
 4. Final product name: chosen or still `local-dictation-app` placeholder?
+5. Add x86_64 (Intel Mac) build to CI matrix now or wait until first Intel Mac user reports interest?
 
 ### Risk register specific to M0
 
 | Risk | Likelihood | Impact | Mitigation |
 |---|---|---|---|
 | Electron Forge + Svelte 5 setup has undocumented quirks | Medium | Low | Start from official `vite-typescript` template, add Svelte as a tested Vite plugin |
-| macos-13 (x86_64) runner deprecated mid-M0 | Low | Medium | Fallback to macos-15 with `--arch x64` cross-compile (Apple Silicon can build x86_64) |
 | Gatekeeper blocks unsigned DMG even with Right-click | Low | Low | Document in README: "Right-click > Open the first time", or `xattr -d com.apple.quarantine <App>.app` |
 | `cargo nextest` not installed by default on GH runners | Low | Low | Add `cargo install cargo-nextest --locked` step to CI, cached |
 | UNIX socket permission issues under sandboxed Electron | Medium | Medium | Use `app.getPath('userData')` which is always writable from the sandbox |
@@ -547,6 +540,7 @@ M0 does not include this step. The static NOTICE at repo root is sufficient for 
 These items should land in M0.5 or M1 specs and are listed here so they are not lost:
 
 - **M0.5 - Signing and notarization:** uncomment `osxSign` / `osxNotarize` in `forge.config.ts`, add GitHub Secrets for cert .p12 base64 + password + Apple ID + App-Specific Password + Team ID, replace placeholder `appBundleId`.
+- **M0.5 or M1 - x86_64 (Intel Mac) build:** restore the matrix structure in `build-mac.yml`, add `x86_64-apple-darwin` to `rust-toolchain.toml` targets, add a `macos-13` or `macos-15` `--arch x64` job. Decision driven by Intel Mac user demand (defer until first request).
 - **M1 - Third-party license aggregation script:** `tools/generate-third-party-licenses.sh` invoked in CI before `npm run make`.
 - **M1 - NOTICE auto-regeneration:** `tools/generate-notice.sh` invoked in CI to keep NOTICE in sync.
 - **Naming:** the placeholder `local-dictation-app` propagates to `package.json` `name`, Forge `name`, `appBundleId`, repo URL, README headline. When the final name is chosen, a rename script must touch all these locations consistently.
