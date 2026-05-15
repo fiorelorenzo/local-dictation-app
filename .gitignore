@@ -36,3 +36,7 @@ release/
 *.AppImage
 *.exe
 .claude/settings.local.json
+
+# Superpowers skills generated docs
+docs/plans/
+docs/specs/
