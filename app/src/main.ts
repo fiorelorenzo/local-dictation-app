@@ -1,6 +1,3 @@
-// SPDX-License-Identifier: Apache-2.0
-// Copyright 2026 Lorenzo Fiore
-
 import { app, BrowserWindow, Tray, Menu, nativeImage } from 'electron';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';

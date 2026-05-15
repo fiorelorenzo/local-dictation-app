@@ -1,6 +1,3 @@
-// SPDX-License-Identifier: Apache-2.0
-// Copyright 2026 Lorenzo Fiore
-
 use std::path::PathBuf;
 use std::process::Command;
 use std::time::Duration;

@@ -1,6 +1,3 @@
-// SPDX-License-Identifier: Apache-2.0
-// Copyright 2026 Lorenzo Fiore
-
 import { contextBridge, ipcRenderer, type IpcRendererEvent } from 'electron';
 
 export type SidecarStateMsg =

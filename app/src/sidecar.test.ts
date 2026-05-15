@@ -1,6 +1,3 @@
-// SPDX-License-Identifier: Apache-2.0
-// Copyright 2026 Lorenzo Fiore
-
 import { describe, it, expect, beforeEach } from 'vitest';
 import { SidecarSupervisor, type SidecarState } from './sidecar';
 
