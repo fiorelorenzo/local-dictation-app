@@ -94,3 +94,32 @@ async fn version_returns_build_info() {
     assert!(body.contains("\"backend\":\"hello-world\""), "body: {body}");
     assert!(body.contains("\"build\":"), "body should contain build field: {body}");
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn sigterm_removes_socket_file() {
+    let server = TestServer::spawn();
+    let socket = server.socket.clone();
+    assert!(socket.exists(), "socket should exist before SIGTERM");
+
+    // Send SIGTERM to the child.
+    let pid = i32::try_from(server.child.id()).expect("pid fits in i32");
+    let result = unsafe { libc::kill(pid, libc::SIGTERM) };
+    assert_eq!(result, 0, "kill returned {result}, errno={}", std::io::Error::last_os_error());
+
+    // Wait up to 3 s for the process to exit.
+    let deadline = std::time::Instant::now() + Duration::from_secs(3);
+    let mut exited = false;
+    while std::time::Instant::now() < deadline {
+        match unsafe { libc::waitpid(pid, std::ptr::null_mut(), libc::WNOHANG) } {
+            0 => std::thread::sleep(Duration::from_millis(50)),
+            -1 => panic!("waitpid failed: {}", std::io::Error::last_os_error()),
+            _ => { exited = true; break; }
+        }
+    }
+    assert!(exited, "sidecar did not exit within 3 s after SIGTERM");
+
+    // Drop the TestServer at the end of scope to avoid double-kill.
+    // Socket file must be gone.
+    assert!(!socket.exists(), "socket file should be removed after SIGTERM cleanup");
+    std::mem::forget(server); // already reaped above; skip Drop double-kill
+}
