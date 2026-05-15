@@ -1,9 +1,11 @@
 import { defineConfig } from 'vite';
-import { svelte } from '@sveltejs/vite-plugin-svelte';
 
-export default defineConfig({
-  plugins: [svelte()],
-  build: {
-    target: 'esnext',
-  },
+export default defineConfig(async () => {
+  const { svelte } = await import('@sveltejs/vite-plugin-svelte');
+  return {
+    plugins: [svelte()],
+    build: {
+      target: 'esnext',
+    },
+  };
 });
