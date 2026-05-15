@@ -257,3 +257,33 @@ async fn stt_real_whisper_transcribes_sample() {
     assert!(!transcript.is_empty(), "transcript was empty: {body}");
     eprintln!("transcript: {transcript}");
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn stt_returns_503_busy_on_concurrent_requests() {
+    // Stub sleeps 800 ms per request. Stub's LOCK_TIMEOUT is 200 ms (in src/stub.rs).
+    // First request acquires the lock and sleeps; second request fails to acquire within 200 ms.
+    let server = TestServer::spawn_with_env(&[
+        ("SIDECAR_STT_BACKEND", "stub"),
+        ("SIDECAR_STUB_SLEEP_MS", "800"),
+    ]);
+    let pcm: Vec<i16> = vec![0; 16];
+    let wav = synth_wav_i16_mono_16k(&pcm);
+
+    let s1 = server.socket.clone();
+    let s2 = server.socket.clone();
+    let w1 = wav.clone();
+    let w2 = wav.clone();
+
+    let h1 = tokio::spawn(async move { unix_post(&s1, "/v1/stt", "audio/wav", w1).await });
+    // small delay so request 1 has acquired the mutex before request 2 arrives
+    tokio::time::sleep(Duration::from_millis(50)).await;
+    let h2 = tokio::spawn(async move { unix_post(&s2, "/v1/stt", "audio/wav", w2).await });
+
+    let (r1, r2) = tokio::join!(h1, h2);
+    let (status1, body1) = r1.unwrap();
+    let (status2, body2) = r2.unwrap();
+
+    assert!(status1.is_success(), "first request failed: {status1} {body1}");
+    assert_eq!(status2, hyper::StatusCode::SERVICE_UNAVAILABLE, "body: {body2}");
+    assert!(body2.contains("\"error\":\"busy\""), "body: {body2}");
+}
