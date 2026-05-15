@@ -10,7 +10,8 @@
     "package": "electron-forge package",
     "make": "electron-forge make",
     "publish": "electron-forge publish",
-    "lint": "eslint --ext .ts,.tsx .",
+    "lint": "eslint 'src/**/*.{ts,svelte}'",
+    "format": "prettier --write 'src/**/*.{ts,svelte,json}'",
     "test": "vitest run"
   },
   "keywords": [],
@@ -37,7 +38,11 @@
     "electron": "42.1.0",
     "eslint": "^8.57.1",
     "eslint-plugin-import": "^2.32.0",
+    "eslint-plugin-svelte": "^2.46.1",
+    "prettier": "^3.8.3",
+    "prettier-plugin-svelte": "^3.5.2",
     "svelte": "^5.55.7",
+    "svelte-eslint-parser": "^1.6.1",
     "typescript": "~5.7",
     "vite": "^5.4.21",
     "vitest": "^4.1.6"
