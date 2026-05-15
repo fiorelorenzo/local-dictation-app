@@ -229,3 +229,31 @@ async fn models_lists_stub_when_loaded() {
     assert!(body.contains("\"backend\":\"stub\""), "body: {body}");
     assert!(body.contains("\"loaded\":true"), "body: {body}");
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[ignore = "requires SIDECAR_WHISPER_MODEL_PATH to a real ggml file + sample-30s.wav fixture"]
+async fn stt_real_whisper_transcribes_sample() {
+    let model_path = std::env::var("SIDECAR_WHISPER_MODEL_PATH")
+        .expect("set SIDECAR_WHISPER_MODEL_PATH to a real ggml whisper model");
+    assert!(std::path::Path::new(&model_path).exists(), "model not found at {model_path}");
+
+    let fixture = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/fixtures/sample-30s.wav");
+    let wav = std::fs::read(&fixture).expect(
+        "place a 30s WAV sample at crates/inference-core/tests/fixtures/sample-30s.wav (gitignored)",
+    );
+
+    let server = TestServer::spawn_with_env(&[
+        ("SIDECAR_STT_BACKEND", "whisper"),
+        ("SIDECAR_WHISPER_MODEL_PATH", model_path.as_str()),
+    ]);
+    let (status, body) = unix_post(&server.socket, "/v1/stt", "audio/wav", wav).await;
+    assert!(status.is_success(), "body: {body}");
+    assert!(body.contains("\"backend\":\"whisper-rs\""), "body: {body}");
+    let text_idx = body.find("\"text\":\"").expect("text field");
+    let after = &body[text_idx + 8..];
+    let close = after.find('"').expect("text close");
+    let transcript = &after[..close];
+    assert!(!transcript.is_empty(), "transcript was empty: {body}");
+    eprintln!("transcript: {transcript}");
+}
