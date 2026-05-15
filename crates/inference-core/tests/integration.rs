@@ -202,3 +202,13 @@ async fn stt_with_stub_returns_text() {
     assert!(body.contains("\"text\":\"[stub] 1600 samples\""), "body: {body}");
     assert!(body.contains("\"backend\":\"stub\""), "body: {body}");
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn stt_503_when_no_backend_loaded() {
+    let server = TestServer::spawn(); // no SIDECAR_STT_BACKEND, no model path => no backend
+    let pcm: Vec<i16> = vec![0; 16];
+    let wav = synth_wav_i16_mono_16k(&pcm);
+    let (status, body) = unix_post(&server.socket, "/v1/stt", "audio/wav", wav).await;
+    assert_eq!(status, hyper::StatusCode::SERVICE_UNAVAILABLE, "body: {body}");
+    assert!(body.contains("\"error\":\"stt_unavailable\""), "body: {body}");
+}
