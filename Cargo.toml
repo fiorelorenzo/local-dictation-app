@@ -1,0 +1,14 @@
+[workspace]
+members = ["crates/inference-core"]
+resolver = "2"
+
+[workspace.package]
+version = "0.0.1"
+edition = "2021"
+license = "Apache-2.0"
+authors = ["Lorenzo Fiore <tech@sencare.io>"]
+repository = "https://github.com/fiorelorenzo/local-dictation-app"
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
