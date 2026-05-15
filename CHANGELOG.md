@@ -6,6 +6,29 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.1.0] - <set release date at merge> - M1a STT
+
+### Added
+- `inference-core` ora espone `POST /v1/stt` (WAV in body → testo trascritto) e `GET /v1/models`.
+- `WhisperBackend` su `whisper-rs` con features `metal + coreml`. Auto-detect dell'encoder CoreML accanto al `.bin`. Provisioning via env `SIDECAR_WHISPER_MODEL_PATH`.
+- `StubBackend` selezionabile via `SIDECAR_STT_BACKEND=stub` per CI/testing senza modello reale.
+- Pipeline audio interna: hound + rubato per resamplare ogni WAV (8-96 kHz, 1-2 canali) a 16 kHz mono f32.
+- Content negotiation JSON ↔ MsgPack su tutti gli endpoint via header `Accept`.
+- Serializzazione delle richieste concorrenti via `tokio::sync::Mutex` con timeout 30s → 503 `busy`.
+- Crate nuovo `crates/lda-cli`: subcommands `health`, `version`, `models`, `stt`.
+- `just test-real` per i test integration con modello reale (marker `#[ignore]`).
+- README: sezioni "Provisioning del modello Whisper" e "Usare lda-cli".
+
+### Changed
+- `/healthz` include `stt_ready: bool`. `/version` riporta `backend: "whisper-rs"` (era `"hello-world"`).
+- Sidecar binary release passa da ~3 MB a ~15 MB (whisper.cpp statico + bridge CoreML).
+- Rust toolchain bumped 1.85 → 1.88 (richiesto da `whisper-rs-sys 0.15`).
+
+### Notes
+- Niente streaming, niente download manager modelli, niente LLM cleanup: rispettivamente M4, M3, M1b.
+- Modelli e `.mlmodelc` non sono bundlati nel DMG: l'utente li scarica e li punta via env.
+- La feature `accelerate` di whisper-rs è stata rimossa upstream nella 0.16 (l'accelerazione macOS arm64 è ora gestita internamente da whisper.cpp).
+
 ## [0.0.1] - 2026-05-15 - M0 Foundation
 
 ### Added
