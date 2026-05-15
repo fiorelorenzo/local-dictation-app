@@ -2,6 +2,9 @@
 #![allow(clippy::missing_errors_doc, clippy::missing_panics_doc)]
 
 mod server;
+// `backend` is unused until T6 (StubBackend) — silenced to avoid dead_code error under clippy::pedantic
+#[allow(dead_code)]
+mod backend;
 
 use std::env;
 use std::path::PathBuf;

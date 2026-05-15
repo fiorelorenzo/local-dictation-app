@@ -7,7 +7,7 @@ authors.workspace = true
 repository.workspace = true
 
 [dependencies]
-tokio = { version = "1.42", features = ["macros", "rt-multi-thread", "signal", "net", "io-util", "time"] }
+tokio = { version = "1.42", features = ["macros", "rt-multi-thread", "signal", "net", "io-util", "time", "sync"] }
 axum = "0.8"
 hyper = { version = "1.5", features = ["full"] }
 serde = { version = "1", features = ["derive"] }
@@ -16,6 +16,8 @@ anyhow = "1"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 tower = "0.5"
+async-trait = "0.1"
+thiserror = "2"
 
 [dev-dependencies]
 tempfile = "3"
