@@ -84,3 +84,13 @@ async fn healthz_returns_ok() {
     assert!(body.contains("\"status\":\"ok\""), "body: {body}");
     assert!(body.contains("\"version\":\"0.0.1\""), "body: {body}");
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn version_returns_build_info() {
+    let server = TestServer::spawn();
+    let (status, body) = unix_get(&server.socket, "/version").await;
+    assert!(status.is_success(), "expected 2xx, got {status}");
+    assert!(body.contains("\"version\":\"0.0.1\""), "body: {body}");
+    assert!(body.contains("\"backend\":\"hello-world\""), "body: {body}");
+    assert!(body.contains("\"build\":"), "body should contain build field: {body}");
+}

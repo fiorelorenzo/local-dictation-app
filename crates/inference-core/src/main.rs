@@ -15,6 +15,11 @@ use tokio::net::UnixListener;
 use tracing::{info, warn};
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
+const BUILD_SHA: &str = match option_env!("BUILD_SHA") {
+    Some(sha) => sha,
+    None => "unknown",
+};
+const BACKEND: &str = "hello-world";
 
 #[derive(Clone)]
 struct AppState {
@@ -28,11 +33,26 @@ struct HealthResponse {
     uptime_ms: u128,
 }
 
+#[derive(Serialize)]
+struct VersionResponse {
+    version: &'static str,
+    build: &'static str,
+    backend: &'static str,
+}
+
 async fn healthz(axum::extract::State(state): axum::extract::State<AppState>) -> Json<HealthResponse> {
     Json(HealthResponse {
         status: "ok",
         version: VERSION,
         uptime_ms: state.started_at.elapsed().as_millis(),
+    })
+}
+
+async fn version() -> Json<VersionResponse> {
+    Json(VersionResponse {
+        version: VERSION,
+        build: BUILD_SHA,
+        backend: BACKEND,
     })
 }
 
@@ -61,6 +81,7 @@ async fn main() -> Result<()> {
     let state = AppState { started_at: Instant::now() };
     let app = Router::new()
         .route("/healthz", get(healthz))
+        .route("/version", get(version))
         .with_state(state);
 
     axum::serve(listener, app).await.context("axum serve")?;
