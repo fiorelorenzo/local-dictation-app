@@ -36,6 +36,9 @@ release/
 *.exe
 .claude/settings.local.json
 
+# Sidecar binary copied into resources at build time
+app/resources/inference-core
+
 # Superpowers skills generated docs
 docs/plans/
 docs/specs/
