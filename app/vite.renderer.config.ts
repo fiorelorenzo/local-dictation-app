@@ -1,4 +1,12 @@
-import { defineConfig } from 'vite';
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Lorenzo Fiore
 
-// https://vitejs.dev/config
-export default defineConfig({});
+import { defineConfig } from 'vite';
+import { svelte } from '@sveltejs/vite-plugin-svelte';
+
+export default defineConfig({
+  plugins: [svelte()],
+  build: {
+    target: 'esnext',
+  },
+});
