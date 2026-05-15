@@ -1,5 +1,5 @@
 [workspace]
-members = ["crates/inference-core"]
+members = ["crates/inference-core", "crates/lda-cli"]
 resolver = "2"
 
 [workspace.package]
