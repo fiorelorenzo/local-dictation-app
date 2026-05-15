@@ -54,6 +54,21 @@ struct VersionBody {
     backend: String,
 }
 
+#[derive(Debug, Deserialize)]
+struct ModelEntry {
+    id: String,
+    kind: String,
+    backend: String,
+    path: String,
+    coreml: bool,
+    loaded: bool,
+}
+
+#[derive(Debug, Deserialize)]
+struct ModelsBody {
+    models: Vec<ModelEntry>,
+}
+
 fn resolve_socket(arg: Option<PathBuf>) -> Result<PathBuf> {
     if let Some(p) = arg {
         return Ok(p);
@@ -120,6 +135,27 @@ async fn cmd_version(socket: &Path, msgpack: bool) -> Result<i32> {
     Ok(0)
 }
 
+async fn cmd_models(socket: &Path, msgpack: bool) -> Result<i32> {
+    let (status, bytes) = unix_get_bytes(socket, "/v1/models", accept_header(msgpack)).await?;
+    if !status.is_success() {
+        eprintln!("{} {}", status, String::from_utf8_lossy(&bytes));
+        return Ok(if status.is_client_error() { 3 } else { 4 });
+    }
+    let body: ModelsBody = decode_body(&bytes, msgpack)?;
+    if body.models.is_empty() {
+        println!("(no models loaded)");
+        return Ok(0);
+    }
+    println!("{:<20} {:<8} {:<12} coreml loaded path", "id", "kind", "backend");
+    for m in &body.models {
+        println!(
+            "{:<20} {:<8} {:<12} {:<6} {:<6} {}",
+            m.id, m.kind, m.backend, m.coreml, m.loaded, m.path
+        );
+    }
+    Ok(0)
+}
+
 #[tokio::main]
 async fn main() -> std::process::ExitCode {
     let cli = Cli::parse();
@@ -145,7 +181,8 @@ async fn main() -> std::process::ExitCode {
     let code = match cli.cmd {
         Cmd::Health => cmd_health(&socket, cli.msgpack).await,
         Cmd::Version => cmd_version(&socket, cli.msgpack).await,
-        Cmd::Models | Cmd::Stt { .. } => {
+        Cmd::Models => cmd_models(&socket, cli.msgpack).await,
+        Cmd::Stt { .. } => {
             eprintln!("subcommand not yet implemented");
             Ok(1)
         }
