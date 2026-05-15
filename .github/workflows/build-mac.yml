@@ -46,8 +46,8 @@ jobs:
       - name: Test
         run: just test
 
-      - name: Build sidecar (release)
-        run: cargo build --release --target $RUST_TARGET -p inference-core
+      - name: Build sidecar + CLI (release)
+        run: cargo build --release --target $RUST_TARGET -p inference-core -p lda-cli
 
       - name: Copy sidecar into app resources
         run: |

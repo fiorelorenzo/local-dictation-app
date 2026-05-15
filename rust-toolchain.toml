@@ -1,5 +1,6 @@
 [toolchain]
-channel = "1.85.0"
+channel = "1.88"
 components = ["clippy", "rustfmt"]
 targets = ["aarch64-apple-darwin"]
 # x86_64-apple-darwin added in M0.5 or M1 when Intel Mac build lands
+# Bumped from 1.85 → 1.88 in M1a-T11: whisper-rs-sys 0.15 requires rustc ≥ 1.88.

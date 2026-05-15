@@ -42,3 +42,6 @@ app/resources/inference-core
 # Superpowers skills generated docs
 docs/plans/
 docs/specs/
+
+# Test audio fixtures (provided locally, not committed)
+crates/inference-core/tests/fixtures/*.wav

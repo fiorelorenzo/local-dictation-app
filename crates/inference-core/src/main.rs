@@ -1,58 +1,21 @@
 #![warn(clippy::pedantic)]
 #![allow(clippy::missing_errors_doc, clippy::missing_panics_doc)]
 
+mod backend;
+mod audio;
+mod server;
+mod stub;
+mod whisper;
+mod wire;
+
 use std::env;
 use std::path::PathBuf;
-use std::time::Instant;
+use std::sync::Arc;
 
 use anyhow::{Context, Result};
-use axum::{routing::get, Json, Router};
-use serde::Serialize;
-use tokio::net::UnixListener;
-use tokio::signal::unix::{signal, SignalKind};
-use tracing::{info, warn};
 
-const VERSION: &str = env!("CARGO_PKG_VERSION");
-const BUILD_SHA: &str = match option_env!("BUILD_SHA") {
-    Some(sha) => sha,
-    None => "unknown",
-};
-const BACKEND: &str = "hello-world";
-
-#[derive(Clone)]
-struct AppState {
-    started_at: Instant,
-}
-
-#[derive(Serialize)]
-struct HealthResponse {
-    status: &'static str,
-    version: &'static str,
-    uptime_ms: u128,
-}
-
-#[derive(Serialize)]
-struct VersionResponse {
-    version: &'static str,
-    build: &'static str,
-    backend: &'static str,
-}
-
-async fn healthz(axum::extract::State(state): axum::extract::State<AppState>) -> Json<HealthResponse> {
-    Json(HealthResponse {
-        status: "ok",
-        version: VERSION,
-        uptime_ms: state.started_at.elapsed().as_millis(),
-    })
-}
-
-async fn version() -> Json<VersionResponse> {
-    Json(VersionResponse {
-        version: VERSION,
-        build: BUILD_SHA,
-        backend: BACKEND,
-    })
-}
+use crate::backend::SttBackendHandle;
+use crate::stub::StubBackend;
 
 fn socket_path_from_env() -> Result<PathBuf> {
     let path = env::var("SIDECAR_SOCKET_PATH")
@@ -60,18 +23,33 @@ fn socket_path_from_env() -> Result<PathBuf> {
     Ok(PathBuf::from(path))
 }
 
-async fn shutdown_signal(socket_path: PathBuf) {
-    let mut sigterm = signal(SignalKind::terminate()).expect("install SIGTERM handler");
-    let mut sigint = signal(SignalKind::interrupt()).expect("install SIGINT handler");
-    tokio::select! {
-        _ = sigterm.recv() => info!("received SIGTERM"),
-        _ = sigint.recv()  => info!("received SIGINT"),
-    }
-    if socket_path.exists() {
-        if let Err(e) = std::fs::remove_file(&socket_path) {
-            warn!(?socket_path, ?e, "failed to remove socket file during shutdown");
-        } else {
-            info!(?socket_path, "removed socket file");
+/// Picks the STT backend at startup based on env.
+/// Precedence: `SIDECAR_STT_BACKEND=stub` > whisper (default).
+fn load_stt_backend() -> Option<SttBackendHandle> {
+    let kind = env::var("SIDECAR_STT_BACKEND").unwrap_or_else(|_| "whisper".to_string());
+    match kind.as_str() {
+        "stub" => Some(Arc::new(StubBackend::new()) as SttBackendHandle),
+        "whisper" => {
+            let Ok(model_path_s) = env::var("SIDECAR_WHISPER_MODEL_PATH") else {
+                tracing::warn!("SIDECAR_WHISPER_MODEL_PATH not set; /v1/stt will return 503");
+                return None;
+            };
+            let model_path = PathBuf::from(model_path_s);
+            if !model_path.exists() {
+                tracing::error!(?model_path, "whisper model file does not exist; STT disabled");
+                return None;
+            }
+            match whisper::WhisperBackend::load(model_path) {
+                Ok(b) => Some(Arc::new(b) as SttBackendHandle),
+                Err(e) => {
+                    tracing::error!(error = ?e, "failed to load WhisperBackend; STT disabled");
+                    None
+                }
+            }
+        }
+        other => {
+            tracing::warn!(backend=%other, "unknown SIDECAR_STT_BACKEND, ignoring");
+            None
         }
     }
 }
@@ -84,24 +62,6 @@ async fn main() -> Result<()> {
         .init();
 
     let socket_path = socket_path_from_env()?;
-    if socket_path.exists() {
-        warn!(?socket_path, "removing stale socket file");
-        std::fs::remove_file(&socket_path).context("remove stale socket")?;
-    }
-
-    let listener = UnixListener::bind(&socket_path).context("bind unix listener")?;
-    info!(?socket_path, "listening on unix socket");
-
-    let state = AppState { started_at: Instant::now() };
-    let app = Router::new()
-        .route("/healthz", get(healthz))
-        .route("/version", get(version))
-        .with_state(state);
-
-    let shutdown = shutdown_signal(socket_path.clone());
-    axum::serve(listener, app)
-        .with_graceful_shutdown(shutdown)
-        .await
-        .context("axum serve")?;
-    Ok(())
+    let stt = load_stt_backend();
+    server::run(socket_path, stt).await
 }
