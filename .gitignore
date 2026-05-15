@@ -35,3 +35,4 @@ release/
 *.dmg
 *.AppImage
 *.exe
+.claude/settings.local.json
