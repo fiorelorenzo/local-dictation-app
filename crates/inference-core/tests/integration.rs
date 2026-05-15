@@ -22,14 +22,19 @@ struct TestServer {
 
 impl TestServer {
     fn spawn() -> Self {
+        Self::spawn_with_env(&[])
+    }
+
+    fn spawn_with_env(extra: &[(&str, &str)]) -> Self {
         let tmp = TempDir::new().expect("tmp dir");
         let socket = tmp.path().join("sidecar.sock");
-        let child = Command::new(binary_path())
-            .env("SIDECAR_SOCKET_PATH", &socket)
-            .env("SIDECAR_LOG_LEVEL", "info")
-            .spawn()
-            .expect("spawn sidecar");
-        // wait up to 3 s for socket to exist
+        let mut cmd = Command::new(binary_path());
+        cmd.env("SIDECAR_SOCKET_PATH", &socket)
+            .env("SIDECAR_LOG_LEVEL", "info");
+        for (k, v) in extra {
+            cmd.env(k, v);
+        }
+        let child = cmd.spawn().expect("spawn sidecar");
         let deadline = std::time::Instant::now() + Duration::from_secs(3);
         while std::time::Instant::now() < deadline {
             if socket.exists() {
@@ -127,4 +132,12 @@ async fn healthz_reports_stt_ready_false_when_no_backend() {
     let (status, body) = unix_get(&server.socket, "/healthz").await;
     assert!(status.is_success(), "got {status}");
     assert!(body.contains("\"stt_ready\":false"), "body: {body}");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn healthz_reports_stt_ready_true_with_stub_backend() {
+    let server = TestServer::spawn_with_env(&[("SIDECAR_STT_BACKEND", "stub")]);
+    let (status, body) = unix_get(&server.socket, "/healthz").await;
+    assert!(status.is_success(), "got {status}");
+    assert!(body.contains("\"stt_ready\":true"), "body: {body}");
 }
