@@ -19,7 +19,7 @@ use tokio::signal::unix::{signal, SignalKind};
 use tracing::{info, warn};
 
 use crate::audio;
-use crate::backend::{SttBackendHandle, SttError, SttOptions};
+use crate::backend::{ModelInfo, SttBackendHandle, SttError, SttOptions};
 use crate::wire::{error_response, ErrorBody, Wire, WireResponse};
 
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -73,6 +73,19 @@ async fn version(headers: HeaderMap) -> WireResponse<VersionResponse> {
             backend: BACKEND_NAME,
         },
     )
+}
+
+#[derive(Serialize)]
+struct ModelsResponse {
+    models: Vec<ModelInfo>,
+}
+
+async fn models(headers: HeaderMap, State(state): State<AppState>) -> WireResponse<ModelsResponse> {
+    let list = match &state.stt {
+        Some(b) => vec![b.model_info()],
+        None => Vec::new(),
+    };
+    WireResponse::ok(Wire::from_accept(&headers), ModelsResponse { models: list })
 }
 
 #[derive(Debug, Deserialize, Default)]
@@ -171,6 +184,7 @@ pub fn build_router(state: AppState) -> Router {
     Router::new()
         .route("/healthz", get(healthz))
         .route("/version", get(version))
+        .route("/v1/models", get(models))
         .route("/v1/stt", axum::routing::post(stt))
         .with_state(state)
         .layer(axum::extract::DefaultBodyLimit::max(MAX_BODY_BYTES))

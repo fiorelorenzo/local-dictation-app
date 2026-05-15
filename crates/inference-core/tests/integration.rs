@@ -212,3 +212,20 @@ async fn stt_503_when_no_backend_loaded() {
     assert_eq!(status, hyper::StatusCode::SERVICE_UNAVAILABLE, "body: {body}");
     assert!(body.contains("\"error\":\"stt_unavailable\""), "body: {body}");
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn models_empty_when_no_backend() {
+    let server = TestServer::spawn();
+    let (status, body) = unix_get(&server.socket, "/v1/models").await;
+    assert!(status.is_success(), "body: {body}");
+    assert!(body.contains("\"models\":[]"), "body: {body}");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn models_lists_stub_when_loaded() {
+    let server = TestServer::spawn_with_env(&[("SIDECAR_STT_BACKEND", "stub")]);
+    let (status, body) = unix_get(&server.socket, "/v1/models").await;
+    assert!(status.is_success(), "body: {body}");
+    assert!(body.contains("\"backend\":\"stub\""), "body: {body}");
+    assert!(body.contains("\"loaded\":true"), "body: {body}");
+}
